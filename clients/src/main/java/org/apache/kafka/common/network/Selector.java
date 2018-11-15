@@ -81,6 +81,7 @@ public class Selector implements Selectable {
     private static final Logger log = LoggerFactory.getLogger(Selector.class);
 
     private final java.nio.channels.Selector nioSelector;
+    // NodeId 和 KafkaChannel之间的映射，表示KafkaProducer和各个Node之间的连接
     private final Map<String, KafkaChannel> channels;
     private final List<Send> completedSends;
     private final List<NetworkReceive> completedReceives;
@@ -93,6 +94,8 @@ public class Selector implements Selectable {
     private final SelectorMetrics sensors;
     private final String metricGrpPrefix;
     private final Map<String, String> metricTags;
+
+    // Builder模式
     private final ChannelBuilder channelBuilder;
     private final int maxReceiveSize;
     private final boolean metricsPerConnection;
@@ -146,6 +149,7 @@ public class Selector implements Selectable {
     }
 
     /**
+     * 创建KafkaChannel
      * Begin connecting to the given address and add the connection to this nioSelector associated with the given id
      * number.
      * <p>
@@ -164,8 +168,10 @@ public class Selector implements Selectable {
             throw new IllegalStateException("There is already a connection for id " + id);
 
         SocketChannel socketChannel = SocketChannel.open();
+        // 非阻塞模式
         socketChannel.configureBlocking(false);
         Socket socket = socketChannel.socket();
+        // 长连接
         socket.setKeepAlive(true);
         if (sendBufferSize != Selectable.USE_DEFAULT_BUFFER_SIZE)
             socket.setSendBufferSize(sendBufferSize);
@@ -288,15 +294,18 @@ public class Selector implements Selectable {
         this.sensors.selectTime.record(endSelect - startSelect, time.milliseconds());
 
         if (readyKeys > 0 || !immediatelyConnectedKeys.isEmpty()) {
+            // 处理IO事件
             pollSelectionKeys(this.nioSelector.selectedKeys(), false, endSelect);
             pollSelectionKeys(immediatelyConnectedKeys, true, endSelect);
         }
 
+        //stagedReceives 拷贝到 completedReceives
         addToCompletedReceives();
 
         long endIo = time.nanoseconds();
         this.sensors.ioTime.record(endIo - endSelect, time.milliseconds());
 
+        // 关闭长期空闲的连接
         // we use the time at the end of select to ensure that we don't close any connections that
         // have just been processed in pollSelectionKeys
         maybeCloseOldestConnection(endSelect);
@@ -318,8 +327,10 @@ public class Selector implements Selectable {
 
             try {
 
+                // 对 OP_CONNECT 事件的处理
                 /* complete any connections that have finished their handshake (either normally or immediately) */
                 if (isImmediatelyConnected || key.isConnectable()) {
+                    // finishConnect 方法先回检查socketChannel是否建立完成，如果套接字通道连接建立了，则取消关注 OP_CONNECT 事件，开始关注 OP_READ 事件
                     if (channel.finishConnect()) {
                         this.connected.add(channel.id());
                         this.sensors.connectionCreated.record();
@@ -337,6 +348,7 @@ public class Selector implements Selectable {
                 if (channel.isConnected() && !channel.ready())
                     channel.prepare();
 
+                // OP_READ 事件处理
                 /* if channel is ready read from any connections that have readable data */
                 if (channel.ready() && key.isReadable() && !hasStagedReceive(channel)) {
                     NetworkReceive networkReceive;
@@ -344,6 +356,7 @@ public class Selector implements Selectable {
                         addToStagedReceives(channel, networkReceive);
                 }
 
+                // OP_WRITE 事件处理
                 /* if channel is ready write to any sockets that have space in their buffer and for which we have data */
                 if (channel.ready() && key.isWritable()) {
                     Send send = channel.write();
@@ -365,6 +378,8 @@ public class Selector implements Selectable {
                     log.debug("Connection with {} disconnected", desc, e);
                 else
                     log.warn("Unexpected error from {}; closing connection", desc, e);
+
+                // 抛出异常说明连接断开了，将NodeID加入到disconnected集合中
                 close(channel);
                 this.disconnected.add(channel.id());
             }

@@ -5,9 +5,9 @@
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,6 +17,7 @@
 package org.apache.kafka.common.record;
 
 import java.lang.reflect.Constructor;
+
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.utils.Utils;
 
@@ -53,7 +54,7 @@ public class Compressor {
         @Override
         public Constructor get() throws ClassNotFoundException, NoSuchMethodException {
             return Class.forName("org.xerial.snappy.SnappyOutputStream")
-                .getConstructor(OutputStream.class, Integer.TYPE);
+                    .getConstructor(OutputStream.class, Integer.TYPE);
         }
     });
 
@@ -61,7 +62,7 @@ public class Compressor {
         @Override
         public Constructor get() throws ClassNotFoundException, NoSuchMethodException {
             return Class.forName("org.apache.kafka.common.record.KafkaLZ4BlockOutputStream")
-                .getConstructor(OutputStream.class);
+                    .getConstructor(OutputStream.class);
         }
     });
 
@@ -69,7 +70,7 @@ public class Compressor {
         @Override
         public Constructor get() throws ClassNotFoundException, NoSuchMethodException {
             return Class.forName("org.xerial.snappy.SnappyInputStream")
-                .getConstructor(InputStream.class);
+                    .getConstructor(InputStream.class);
         }
     });
 
@@ -77,7 +78,7 @@ public class Compressor {
         @Override
         public Constructor get() throws ClassNotFoundException, NoSuchMethodException {
             return Class.forName("org.apache.kafka.common.record.KafkaLZ4BlockInputStream")
-                .getConstructor(InputStream.class, Boolean.TYPE);
+                    .getConstructor(InputStream.class, Boolean.TYPE);
         }
     });
 
@@ -92,6 +93,7 @@ public class Compressor {
     public long maxTimestamp;
 
     public Compressor(ByteBuffer buffer, CompressionType type) {
+        // 从 KafkaProducer传来的压缩类型
         this.type = type;
         this.initPos = buffer.position();
 
@@ -108,6 +110,7 @@ public class Compressor {
 
         // create the stream
         bufferStream = new ByteBufferOutputStream(buffer);
+        // 根据压缩类型创建对应的压缩流
         appendStream = wrapForOutput(bufferStream, type, COMPRESSION_DEFAULT_BUFFER_SIZE);
     }
 
@@ -140,8 +143,8 @@ public class Compressor {
             buffer.putInt(initPos + Records.LOG_OVERHEAD + Record.KEY_OFFSET_V1, valueSize);
             // compute and fill the crc at the beginning of the message
             long crc = Record.computeChecksum(buffer,
-                initPos + Records.LOG_OVERHEAD + Record.MAGIC_OFFSET,
-                pos - initPos - Records.LOG_OVERHEAD - Record.MAGIC_OFFSET);
+                    initPos + Records.LOG_OVERHEAD + Record.MAGIC_OFFSET,
+                    pos - initPos - Records.LOG_OVERHEAD - Record.MAGIC_OFFSET);
             Utils.writeUnsignedInt(buffer, initPos + Records.LOG_OVERHEAD + Record.CRC_OFFSET, crc);
             // reset the position
             buffer.position(pos);
@@ -149,7 +152,7 @@ public class Compressor {
             // update the compression ratio
             this.compressionRate = (float) buffer.position() / this.writtenUncompressed;
             TYPE_TO_RATE[type.id] = TYPE_TO_RATE[type.id] * COMPRESSION_RATE_DAMPING_FACTOR +
-                compressionRate * (1 - COMPRESSION_RATE_DAMPING_FACTOR);
+                    compressionRate * (1 - COMPRESSION_RATE_DAMPING_FACTOR);
         }
     }
 
@@ -211,6 +214,7 @@ public class Compressor {
 
     /**
      * Put a record as uncompressed into the underlying stream
+     *
      * @return CRC of the record
      */
     public long putRecord(long timestamp, byte[] key, byte[] value) {

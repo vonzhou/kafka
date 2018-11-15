@@ -3,9 +3,9 @@
  * file distributed with this work for additional information regarding copyright ownership. The ASF licenses this file
  * to You under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the
  * License. You may obtain a copy of the License at
- * 
+ * <p>
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ * <p>
  * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
  * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
  * specific language governing permissions and limitations under the License.
@@ -166,15 +166,18 @@ public class Sender implements Runnable {
 
     /**
      * Run a single iteration of sending
-     * 
-     * @param now
-     *            The current POSIX time in milliseconds
+     *
+     * @param now The current POSIX time in milliseconds
      */
     void run(long now) {
+        // 1. 获取集群元数据
         Cluster cluster = metadata.fetch();
+
+        // 2. 要发送数据的分区检查
         // get the list of partitions with data ready to send
         RecordAccumulator.ReadyCheckResult result = this.accumulator.ready(cluster, now);
 
+        // 3. 如果存在leader不存在的分区，则标记要请求元数据
         // if there are any partitions whose leaders are not known yet, force metadata update
         if (!result.unknownLeaderTopics.isEmpty()) {
             // The set of topics with unknown leader contains topics with leader election pending as well as
@@ -185,6 +188,7 @@ public class Sender implements Runnable {
             this.metadata.requestUpdate();
         }
 
+        // 根据网络连接状况，过滤掉无效的Node
         // remove any nodes we aren't ready to send to
         Iterator<Node> iter = result.readyNodes.iterator();
         long notReadyTimeout = Long.MAX_VALUE;
@@ -196,11 +200,12 @@ public class Sender implements Runnable {
             }
         }
 
+        // 获取待发送的数据
         // create produce requests
         Map<Integer, List<RecordBatch>> batches = this.accumulator.drain(cluster,
-                                                                         result.readyNodes,
-                                                                         this.maxRequestSize,
-                                                                         now);
+                result.readyNodes,
+                this.maxRequestSize,
+                now);
         if (guaranteeMessageOrder) {
             // Mute all the partitions drained
             for (List<RecordBatch> batchList : batches.values()) {
@@ -209,12 +214,15 @@ public class Sender implements Runnable {
             }
         }
 
+        // 处理超时消息
         List<RecordBatch> expiredBatches = this.accumulator.abortExpiredBatches(this.requestTimeout, now);
         // update sensors
         for (RecordBatch expiredBatch : expiredBatches)
             this.sensors.recordErrors(expiredBatch.topicPartition.topic(), expiredBatch.recordCount);
 
         sensors.updateProduceRequestMetrics(batches);
+
+        // 消息封装成ClientRequest
         List<ClientRequest> requests = createProduceRequests(batches, now);
         // If we have any nodes that are ready to send + have sendable data, poll with 0 timeout so this can immediately
         // loop and try sending more data. Otherwise, the timeout is determined by nodes that have partitions with data
@@ -226,9 +234,12 @@ public class Sender implements Runnable {
             log.trace("Created {} produce requests: {}", requests.size(), requests);
             pollTimeout = 0;
         }
+
+        // 消息传递给 KafkaChannel
         for (ClientRequest request : requests)
             client.send(request, now);
 
+        // 将 KafkaChannel 中保存的 ClientRequest 发出，同时会处理服务端返回的响应，处理超时请求，调用用户自定义Callback等
         // if some partitions are already ready to be sent, the select time would be 0;
         // otherwise if some partition already has some data accumulated but not ready yet,
         // the select time will be the time difference between now and its linger expiry time;
@@ -262,14 +273,14 @@ public class Sender implements Runnable {
         int correlationId = response.request().request().header().correlationId();
         if (response.wasDisconnected()) {
             log.trace("Cancelled request {} due to node {} being disconnected", response, response.request()
-                                                                                                  .request()
-                                                                                                  .destination());
+                    .request()
+                    .destination());
             for (RecordBatch batch : batches.values())
                 completeBatch(batch, Errors.NETWORK_EXCEPTION, -1L, Record.NO_TIMESTAMP, correlationId, now);
         } else {
             log.trace("Received produce response from node {} with correlation id {}",
-                      response.request().request().destination(),
-                      correlationId);
+                    response.request().request().destination(),
+                    correlationId);
             // if we have a response, parse it
             if (response.hasResponse()) {
                 ProduceResponse produceResponse = new ProduceResponse(response.responseBody());
@@ -282,7 +293,7 @@ public class Sender implements Runnable {
                 }
                 this.sensors.recordLatency(response.request().request().destination(), response.requestLatencyMs());
                 this.sensors.recordThrottleTime(response.request().request().destination(),
-                                                produceResponse.getThrottleTime());
+                        produceResponse.getThrottleTime());
             } else {
                 // this is the acks = 0 case, just complete all requests
                 for (RecordBatch batch : batches.values())
@@ -293,22 +304,22 @@ public class Sender implements Runnable {
 
     /**
      * Complete or retry the given batch of records.
-     * 
-     * @param batch The record batch
-     * @param error The error (or null if none)
-     * @param baseOffset The base offset assigned to the records if successful
-     * @param timestamp The timestamp returned by the broker for this batch
+     *
+     * @param batch         The record batch
+     * @param error         The error (or null if none)
+     * @param baseOffset    The base offset assigned to the records if successful
+     * @param timestamp     The timestamp returned by the broker for this batch
      * @param correlationId The correlation id for the request
-     * @param now The current POSIX time stamp in milliseconds
+     * @param now           The current POSIX time stamp in milliseconds
      */
     private void completeBatch(RecordBatch batch, Errors error, long baseOffset, long timestamp, long correlationId, long now) {
         if (error != Errors.NONE && canRetry(batch, error)) {
             // retry
             log.warn("Got error produce response with correlation id {} on topic-partition {}, retrying ({} attempts left). Error: {}",
-                     correlationId,
-                     batch.topicPartition,
-                     this.retries - batch.attempts - 1,
-                     error);
+                    correlationId,
+                    batch.topicPartition,
+                    this.retries - batch.attempts - 1,
+                    error);
             this.accumulator.reenqueue(batch, now);
             this.sensors.recordRetries(batch.topicPartition.topic(), batch.recordCount);
         } else {
@@ -354,25 +365,37 @@ public class Sender implements Runnable {
 
     /**
      * Create a produce request from the given record batches
+     *
+     * @param now
+     * @param destination NodeId
+     * @param acks
+     * @param timeout
+     * @param batches
+     * @return
      */
     private ClientRequest produceRequest(long now, int destination, short acks, int timeout, List<RecordBatch> batches) {
         Map<TopicPartition, ByteBuffer> produceRecordsByPartition = new HashMap<TopicPartition, ByteBuffer>(batches.size());
         final Map<TopicPartition, RecordBatch> recordsByPartition = new HashMap<TopicPartition, RecordBatch>(batches.size());
+        // 把Batch根据partition分类
         for (RecordBatch batch : batches) {
             TopicPartition tp = batch.topicPartition;
             produceRecordsByPartition.put(tp, batch.records.buffer());
             recordsByPartition.put(tp, batch);
         }
         ProduceRequest request = new ProduceRequest(acks, timeout, produceRecordsByPartition);
+
         RequestSend send = new RequestSend(Integer.toString(destination),
-                                           this.client.nextRequestHeader(ApiKeys.PRODUCE),
-                                           request.toStruct());
+                this.client.nextRequestHeader(ApiKeys.PRODUCE),
+                request.toStruct());
+
+        // 回调
         RequestCompletionHandler callback = new RequestCompletionHandler() {
             public void onComplete(ClientResponse response) {
                 handleProduceResponse(response, recordsByPartition, time.milliseconds());
             }
         };
 
+        // 注意第二个参数 acks 决定请求是否需要获取响应
         return new ClientRequest(now, acks != 0, send, callback);
     }
 

@@ -3,9 +3,9 @@
  * file distributed with this work for additional information regarding copyright ownership. The ASF licenses this file
  * to You under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the
  * License. You may obtain a copy of the License at
- *
+ * <p>
  * http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
  * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
  * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
  * specific language governing permissions and limitations under the License.
@@ -32,10 +32,11 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
+ * 里面封装了Cluster信息。
  * A class encapsulating some of the logic around metadata.
  * <p>
  * This class is shared by the client thread (for partitioning) and the background sender thread.
- *
+ * <p>
  * Metadata is maintained for only a subset of topics, which can be added to over time. When we request metadata for a
  * topic we don't have any metadata for it will trigger a metadata update.
  * <p>
@@ -51,6 +52,8 @@ public final class Metadata {
     private static final long TOPIC_EXPIRY_NEEDS_UPDATE = -1L;
 
     private final long refreshBackoffMs;
+
+    // 多久更新一次，默认是5分钟
     private final long metadataExpireMs;
     private int version;
     private long lastRefreshMs;
@@ -77,10 +80,11 @@ public final class Metadata {
 
     /**
      * Create a new Metadata instance
-     * @param refreshBackoffMs The minimum amount of time that must expire between metadata refreshes to avoid busy
-     *        polling
-     * @param metadataExpireMs The maximum amount of time that metadata can be retained without refresh
-     * @param topicExpiryEnabled If true, enable expiry of unused topics
+     *
+     * @param refreshBackoffMs         The minimum amount of time that must expire between metadata refreshes to avoid busy
+     *                                 polling
+     * @param metadataExpireMs         The maximum amount of time that metadata can be retained without refresh
+     * @param topicExpiryEnabled       If true, enable expiry of unused topics
      * @param clusterResourceListeners List of ClusterResourceListeners which will receive metadata updates.
      */
     public Metadata(long refreshBackoffMs, long metadataExpireMs, boolean topicExpiryEnabled, ClusterResourceListeners clusterResourceListeners) {
@@ -125,6 +129,7 @@ public final class Metadata {
     }
 
     /**
+     * 设置needUpdate = true,这样Sender线程运行时会请求元数据
      * Request an update of the current cluster metadata info, return the current version before the update
      */
     public synchronized int requestUpdate() {
@@ -134,6 +139,7 @@ public final class Metadata {
 
     /**
      * Check whether an update has been explicitly requested.
+     *
      * @return true if an update was requested, false otherwise
      */
     public synchronized boolean updateRequested() {
@@ -141,6 +147,8 @@ public final class Metadata {
     }
 
     /**
+     * 通过version版本号判断更新是否完成，未完成则阻塞等待
+     * 可以看到主线程和Sender线程使用wait/notify来同步，所以这个方法是 synchronized
      * Wait for metadata update until the current version is larger than the last version we know of
      */
     public synchronized void awaitUpdate(final int lastVersion, final long maxWaitMs) throws InterruptedException {
@@ -150,6 +158,7 @@ public final class Metadata {
         long begin = System.currentTimeMillis();
         long remainingWaitMs = maxWaitMs;
         while (this.version <= lastVersion) {
+            // 该Metadata对象本身作为 object monitor
             if (remainingWaitMs != 0)
                 wait(remainingWaitMs);
             long elapsed = System.currentTimeMillis() - begin;
@@ -163,6 +172,7 @@ public final class Metadata {
      * Replace the current set of topics maintained to the one provided.
      * If topic expiry is enabled, expiry time of the topics will be
      * reset on the next update.
+     *
      * @param topics
      */
     public synchronized void setTopics(Collection<String> topics) {
@@ -182,6 +192,7 @@ public final class Metadata {
 
     /**
      * Check if a topic is already in the topic set.
+     *
      * @param topic topic to check
      * @return true if the topic exists, false otherwise
      */
@@ -215,7 +226,7 @@ public final class Metadata {
             }
         }
 
-        for (Listener listener: listeners)
+        for (Listener listener : listeners)
             listener.onMetadataUpdate(cluster);
 
         String previousClusterId = cluster.clusterResource().clusterId();
@@ -272,6 +283,7 @@ public final class Metadata {
 
     /**
      * Set state to indicate if metadata for all topics in Kafka cluster is required or not.
+     *
      * @param needMetadataForAllTopics boolean indicating need for metadata of all topics in cluster.
      */
     public synchronized void needMetadataForAllTopics(boolean needMetadataForAllTopics) {

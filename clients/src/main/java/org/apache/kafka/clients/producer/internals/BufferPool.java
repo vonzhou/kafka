@@ -5,9 +5,9 @@
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -43,10 +43,15 @@ import org.apache.kafka.common.utils.Time;
  */
 public final class BufferPool {
 
+    // 整个pool的大小
     private final long totalMemory;
     private final int poolableSize;
+
+    // ByteBuffer 分配和回收的并发控制
     private final ReentrantLock lock;
     private final Deque<ByteBuffer> free;
+
+    // 申请不到足够空间而阻塞的线程，记录的是阻塞线程对应的Condition对象
     private final Deque<Condition> waiters;
     private long availableMemory;
     private final Metrics metrics;
@@ -55,11 +60,11 @@ public final class BufferPool {
 
     /**
      * Create a new buffer pool
-     * 
-     * @param memory The maximum amount of memory that this buffer pool can allocate
-     * @param poolableSize The buffer size to cache in the free list rather than deallocating
-     * @param metrics instance of Metrics
-     * @param time time instance
+     *
+     * @param memory        The maximum amount of memory that this buffer pool can allocate
+     * @param poolableSize  The buffer size to cache in the free list rather than deallocating
+     * @param metrics       instance of Metrics
+     * @param time          time instance
      * @param metricGrpName logical group name for metrics
      */
     public BufferPool(long memory, int poolableSize, Metrics metrics, Time time, String metricGrpName) {
@@ -73,28 +78,28 @@ public final class BufferPool {
         this.time = time;
         this.waitTime = this.metrics.sensor("bufferpool-wait-time");
         MetricName metricName = metrics.metricName("bufferpool-wait-ratio",
-                                                   metricGrpName,
-                                                   "The fraction of time an appender waits for space allocation.");
+                metricGrpName,
+                "The fraction of time an appender waits for space allocation.");
         this.waitTime.add(metricName, new Rate(TimeUnit.NANOSECONDS));
     }
 
     /**
      * Allocate a buffer of the given size. This method blocks if there is not enough memory and the buffer pool
      * is configured with blocking mode.
-     * 
-     * @param size The buffer size to allocate in bytes
+     *
+     * @param size             The buffer size to allocate in bytes
      * @param maxTimeToBlockMs The maximum time in milliseconds to block for buffer memory to be available
      * @return The buffer
-     * @throws InterruptedException If the thread is interrupted while blocked
+     * @throws InterruptedException     If the thread is interrupted while blocked
      * @throws IllegalArgumentException if size is larger than the total memory controlled by the pool (and hence we would block
-     *         forever)
+     *                                  forever)
      */
     public ByteBuffer allocate(int size, long maxTimeToBlockMs) throws InterruptedException {
         if (size > this.totalMemory)
             throw new IllegalArgumentException("Attempt to allocate " + size
-                                               + " bytes, but there is a hard limit of "
-                                               + this.totalMemory
-                                               + " on memory allocations.");
+                    + " bytes, but there is a hard limit of "
+                    + this.totalMemory
+                    + " on memory allocations.");
 
         this.lock.lock();
         try {
@@ -106,13 +111,16 @@ public final class BufferPool {
             // memory on hand or if we need to block
             int freeListSize = this.free.size() * this.poolableSize;
             if (this.availableMemory + freeListSize >= size) {
+                // 不断释放free队列中的buffer，直到可用内存>size
                 // we have enough unallocated or pooled memory to immediately
                 // satisfy the request
                 freeUp(size);
                 this.availableMemory -= size;
                 lock.unlock();
+                // 使用的不是free队列中的buffer，而是直接分配HeapByteBuffer
                 return ByteBuffer.allocate(size);
             } else {
+                // 没有足够空间，阻塞
                 // we are out of memory and will have to block
                 int accumulated = 0;
                 ByteBuffer buffer = null;
@@ -149,6 +157,7 @@ public final class BufferPool {
                         buffer = this.free.pollFirst();
                         accumulated = size;
                     } else {
+                        // 先分配一部分空间
                         // we'll need to allocate memory, but we may only get
                         // part of what we need on this iteration
                         freeUp(size - accumulated);
@@ -158,12 +167,14 @@ public final class BufferPool {
                     }
                 }
 
+                // 成功分配空间后，移除条件变量
                 // remove the condition for this thread to let the next thread
                 // in line start getting memory
                 Condition removed = this.waiters.removeFirst();
                 if (removed != moreMemory)
                     throw new IllegalStateException("Wrong condition: this shouldn't happen.");
 
+                // 如果还有剩余空间，还有等待线程，则唤醒
                 // signal any additional waiters if there is more memory left
                 // over for them
                 if (this.availableMemory > 0 || !this.free.isEmpty()) {
@@ -196,20 +207,24 @@ public final class BufferPool {
     /**
      * Return buffers to the pool. If they are of the poolable size add them to the free list, otherwise just mark the
      * memory as free.
-     * 
+     *
      * @param buffer The buffer to return
-     * @param size The size of the buffer to mark as deallocated, note that this maybe smaller than buffer.capacity
-     *             since the buffer may re-allocate itself during in-place compression
+     * @param size   The size of the buffer to mark as deallocated, note that this maybe smaller than buffer.capacity
+     *               since the buffer may re-allocate itself during in-place compression
      */
     public void deallocate(ByteBuffer buffer, int size) {
         lock.lock();
         try {
+            // 如果是poolableSize大小的buffer，则入free队列管理
             if (size == this.poolableSize && size == buffer.capacity()) {
                 buffer.clear();
                 this.free.add(buffer);
             } else {
+                // 否则直接增加大小，分配的buffer由GC回收
                 this.availableMemory += size;
             }
+
+            // 唤醒一个因内存分配得不到满足而阻塞的线程
             Condition moreMem = this.waiters.peekFirst();
             if (moreMem != null)
                 moreMem.signal();

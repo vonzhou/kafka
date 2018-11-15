@@ -39,12 +39,20 @@ public final class RecordBatch {
     public final long createdMs;
     public long drainedMs;
     public long lastAttemptMs;
+
+    // 具体消息存放
     public final MemoryRecords records;
+
+    // 该RecordBatch中的消息
     public final TopicPartition topicPartition;
     public final ProduceRequestResult produceFuture;
     public long lastAppendTime;
+
+
     private final List<Thunk> thunks;
     private long offsetCounter = 0L;
+
+    // 是否正在重试
     private boolean retry;
 
     public RecordBatch(TopicPartition tp, MemoryRecords records, long now) {

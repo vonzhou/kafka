@@ -225,6 +225,7 @@ public final class Cluster {
     }
 
     /**
+     * topic的分区个数
      * Get the number of partitions for the given topic
      * @param topic The topic to get the number of partitions for
      * @return The number of partitions or null if there is no corresponding metadata

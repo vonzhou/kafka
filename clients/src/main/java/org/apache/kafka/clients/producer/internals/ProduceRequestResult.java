@@ -29,8 +29,11 @@ import org.apache.kafka.common.TopicPartition;
  */
 public final class ProduceRequestResult {
 
+    // 同步控制，批量发送完成（正常，或者失败）后通知等待的线程
     private final CountDownLatch latch = new CountDownLatch(1);
     private volatile TopicPartition topicPartition;
+
+    // 分区为该 Batch 中第一个记录分配的offset，其他Batch中的消息据此计算offset
     private volatile long baseOffset = -1L;
     private volatile RuntimeException error;
 

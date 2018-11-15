@@ -3,9 +3,9 @@
  * file distributed with this work for additional information regarding copyright ownership. The ASF licenses this file
  * to You under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the
  * License. You may obtain a copy of the License at
- * 
+ * <p>
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ * <p>
  * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
  * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
  * specific language governing permissions and limitations under the License.
@@ -19,7 +19,11 @@ public class PartitionInfo {
 
     private final String topic;
     private final int partition;
+
+    // 该分区leader所在的节点
     private final Node leader;
+
+    // 该分区replica所在的节点
     private final Node[] replicas;
     private final Node[] inSyncReplicas;
 
@@ -70,11 +74,11 @@ public class PartitionInfo {
     @Override
     public String toString() {
         return String.format("Partition(topic = %s, partition = %d, leader = %s, replicas = %s, isr = %s)",
-                             topic,
-                             partition,
-                             leader == null ? "none" : leader.id(),
-                             fmtNodeIds(replicas),
-                             fmtNodeIds(inSyncReplicas));
+                topic,
+                partition,
+                leader == null ? "none" : leader.id(),
+                fmtNodeIds(replicas),
+                fmtNodeIds(inSyncReplicas));
     }
 
     /* Extract the node ids from each item in the array and format for display */
